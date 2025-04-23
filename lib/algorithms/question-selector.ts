@@ -220,10 +220,56 @@ export class AdaptiveQuestionSelector {
 
             // Calculate diversity factor (penalize questions with many overlapping skills)
             const overlapRatio = overlapCount / questionSkills.length;
-            const diversityFactor = 1 - overlapRatio * 0.3; // Max 30% penalty for complete overlap
+            const diversityFactor = 1 - overlapRatio * 0.5; // Meningkatkan dari 0.3 menjadi 0.5
 
             // Apply diversity factor to information gain
             infoGain *= diversityFactor;
+        }
+
+        // Tambahkan bonus untuk pertanyaan dari sphere yang kurang terwakili
+        if (this.askedQuestions.size > 5) {
+            // Mulai mempertimbangkan setelah beberapa pertanyaan
+            const sphereCounts = new Map<number, number>();
+            const askedQuestionsList = Array.from(this.askedQuestions);
+
+            // Hitung berapa kali setiap sphere sudah ditanyakan
+            for (const qId of askedQuestionsList) {
+                const q = this.questionPool.find((q) => q.id === qId);
+                if (q) {
+                    const skillIds = Object.keys(q.linked_skills);
+                    for (const skillId of skillIds) {
+                        const skill = skills.find((s) => s.id === skillId);
+                        if (skill) {
+                            const sphereId = skill.sphere_id;
+                            sphereCounts.set(
+                                sphereId,
+                                (sphereCounts.get(sphereId) || 0) + 1
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Berikan bonus untuk pertanyaan dari sphere yang kurang terwakili
+            const questionSkillIds = Object.keys(question.linked_skills);
+            let sphereBonus = 1.0;
+
+            for (const skillId of questionSkillIds) {
+                const skill = skills.find((s) => s.id === skillId);
+                if (skill) {
+                    const sphereId = skill.sphere_id;
+                    const sphereCount = sphereCounts.get(sphereId) || 0;
+                    const avgCount = this.askedQuestions.size / 7; // Rata-rata per sphere
+
+                    if (sphereCount < avgCount * 0.7) {
+                        // Kurang dari 70% rata-rata
+                        sphereBonus = 1.3; // Bonus 30%
+                        break;
+                    }
+                }
+            }
+
+            infoGain *= sphereBonus;
         }
 
         return infoGain;
@@ -251,7 +297,6 @@ export class AdaptiveQuestionSelector {
         }
 
         let bestQuestion: Question | null = null;
-        let highestInfoGain = -1;
 
         // If we're skipping the current question, add it to skipped set
         if (skipCurrent && currentQuestionId) {
@@ -281,35 +326,82 @@ export class AdaptiveQuestionSelector {
                     Math.random() * topQuestions.length
                 );
                 bestQuestion = topQuestions[randomIndex];
+                this.questionHistory.push(bestQuestion.id);
                 return bestQuestion;
             }
         }
 
-        // Find the question with the highest information gain
-        this.questionPool.forEach((question) => {
-            if (
-                this.askedQuestions.has(question.id) ||
-                this.skippedQuestions.has(question.id)
-            )
-                return;
+        // Implementasi strategi exploration vs exploitation
+        // Tingkat eksplorasi menurun seiring bertambahnya pertanyaan
+        const explorationRate = Math.max(
+            0.3,
+            1 - this.askedQuestions.size / 10
+        );
 
-            const infoGain = this.calculateInformationGain(question);
-            if (infoGain > highestInfoGain) {
-                highestInfoGain = infoGain;
-                bestQuestion = question;
+        // Tentukan apakah kita akan menggunakan mode eksplorasi atau eksploitasi
+        if (Math.random() < explorationRate) {
+            // Mode eksplorasi: pilih pertanyaan secara acak dari top N
+            const topN = Math.max(
+                3,
+                Math.floor(10 - this.askedQuestions.size / 3)
+            ); // Mulai dari 10, turun hingga 3
+
+            const candidateQuestions = this.questionPool
+                .filter(
+                    (question) =>
+                        !this.askedQuestions.has(question.id) &&
+                        !this.skippedQuestions.has(question.id)
+                )
+                .map((question) => ({
+                    question,
+                    infoGain:
+                        this.calculateInformationGain(question) *
+                        (0.8 + Math.random() * 0.4), // Tambahkan faktor keacakan
+                }))
+                .filter((item) => item.infoGain > 0)
+                .sort((a, b) => b.infoGain - a.infoGain)
+                .slice(0, topN)
+                .map((item) => item.question);
+
+            if (candidateQuestions.length > 0) {
+                const randomIndex = Math.floor(
+                    Math.random() * candidateQuestions.length
+                );
+                bestQuestion = candidateQuestions[randomIndex];
             }
-        });
+        } else {
+            // Mode eksploitasi: pilih pertanyaan dengan information gain tertinggi
+            let highestInfoGain = -1;
+
+            this.questionPool.forEach((question) => {
+                if (
+                    this.askedQuestions.has(question.id) ||
+                    this.skippedQuestions.has(question.id)
+                )
+                    return;
+
+                const infoGain = this.calculateInformationGain(question);
+                if (infoGain > highestInfoGain) {
+                    highestInfoGain = infoGain;
+                    bestQuestion = question;
+                }
+            });
+        }
 
         // If no question found with positive info gain, try to find any unasked question
         if (!bestQuestion) {
-            for (const question of this.questionPool) {
-                if (
+            const unaskedQuestions = this.questionPool.filter(
+                (question) =>
                     !this.askedQuestions.has(question.id) &&
                     !this.skippedQuestions.has(question.id)
-                ) {
-                    bestQuestion = question;
-                    break;
-                }
+            );
+
+            if (unaskedQuestions.length > 0) {
+                // Pilih secara acak dari pertanyaan yang belum ditanyakan
+                const randomIndex = Math.floor(
+                    Math.random() * unaskedQuestions.length
+                );
+                bestQuestion = unaskedQuestions[randomIndex];
             }
         }
 
