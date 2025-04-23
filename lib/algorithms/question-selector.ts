@@ -10,6 +10,7 @@ export class AdaptiveQuestionSelector {
     firstQuestionRandomization: boolean;
     questionHistory: string[];
     recentlyUsedSkills: Set<string>;
+    preferences?: Record<string, number>; // Simpan preferensi untuk digunakan nanti
 
     constructor(
         questionPool: Question[],
@@ -20,6 +21,7 @@ export class AdaptiveQuestionSelector {
         this.userAnswers = userAnswers;
         this.askedQuestions = new Set();
         this.skippedQuestions = new Set();
+        this.preferences = preferences; // Simpan preferensi
 
         // Inisialisasi probabilitas dengan preferensi jika ada
         if (preferences && Object.keys(preferences).length > 0) {
@@ -71,14 +73,14 @@ export class AdaptiveQuestionSelector {
                 const spherePreference = preferences[sphereId.toString()];
                 if (spherePreference !== undefined) {
                     // Sesuaikan probabilitas (0.5 adalah nilai netral)
-                    // Gunakan adjustment factor 0.3 untuk menghindari bias yang terlalu kuat
+                    // Tingkatkan adjustment factor dari 0.3 menjadi 0.5 untuk efek yang lebih kuat
                     probabilities[skillId] =
-                        0.5 + (spherePreference - 0.5) * 0.3;
+                        0.5 + (spherePreference - 0.5) * 0.5;
 
-                    // Pastikan nilai tetap dalam batas yang wajar
+                    // Perluas range dari 0.3-0.7 menjadi 0.2-0.8
                     probabilities[skillId] = Math.max(
-                        0.3,
-                        Math.min(0.7, probabilities[skillId])
+                        0.2,
+                        Math.min(0.8, probabilities[skillId])
                     );
                 }
             }
@@ -210,6 +212,34 @@ export class AdaptiveQuestionSelector {
             (priorEntropy - expectedPosteriorEntropy) *
             (question.discriminative_value || 0.5);
 
+        // Tambahkan bonus untuk pertanyaan dari sphere prioritas jika ada preferensi
+        if (this.preferences && Object.keys(this.preferences).length > 0) {
+            const questionSkills = Object.keys(question.linked_skills);
+            let maxSpherePreference = 0;
+
+            // Cari preferensi sphere tertinggi untuk skill yang terkait dengan pertanyaan
+            for (const skillId of questionSkills) {
+                const skill = skills.find((s) => s.id === skillId);
+                if (skill) {
+                    const sphereId = skill.sphere_id.toString();
+                    const spherePreference = this.preferences[sphereId] || 0.5;
+                    maxSpherePreference = Math.max(
+                        maxSpherePreference,
+                        spherePreference
+                    );
+                }
+            }
+
+            // Berikan bonus information gain berdasarkan preferensi
+            if (maxSpherePreference > 0.6) {
+                // Preferensi tinggi
+                infoGain *= 1.3; // Bonus 30%
+            } else if (maxSpherePreference > 0.5) {
+                // Preferensi sedang
+                infoGain *= 1.1; // Bonus 10%
+            }
+        }
+
         // Apply diversity bonus/penalty based on recently used skills
         if (this.recentlyUsedSkills.size > 0 && this.askedQuestions.size > 0) {
             // Check if this question uses skills that were recently used
@@ -303,10 +333,42 @@ export class AdaptiveQuestionSelector {
             this.skippedQuestions.add(currentQuestionId);
         }
 
-        // Randomisasi untuk pertanyaan pertama
+        // Pemilihan pertanyaan pertama dengan mempertimbangkan preferensi
         if (this.askedQuestions.size === 0 && this.firstQuestionRandomization) {
+            // Jika ada preferensi, gunakan untuk memfilter pertanyaan
+            let candidateQuestions = this.questionPool;
+
+            if (this.preferences && Object.keys(this.preferences).length > 0) {
+                // Dapatkan sphere dengan preferensi tertinggi (top 3)
+                const topSpheres = Object.entries(this.preferences)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 3)
+                    .map(([sphereId]) => parseInt(sphereId));
+
+                // Filter pertanyaan yang terkait dengan sphere prioritas
+                const priorityQuestions = this.questionPool.filter(
+                    (question) => {
+                        // Periksa apakah pertanyaan terkait dengan skill dari sphere prioritas
+                        const relatedSkills = Object.keys(
+                            question.linked_skills
+                        );
+                        return relatedSkills.some((skillId) => {
+                            const skill = skills.find((s) => s.id === skillId);
+                            return (
+                                skill && topSpheres.includes(skill.sphere_id)
+                            );
+                        });
+                    }
+                );
+
+                // Gunakan pertanyaan prioritas jika ada cukup banyak
+                if (priorityQuestions.length >= 5) {
+                    candidateQuestions = priorityQuestions;
+                }
+            }
+
             // Pilih dari top 5 pertanyaan dengan information gain tertinggi
-            const topQuestions = this.questionPool
+            const topQuestions = candidateQuestions
                 .filter(
                     (question) =>
                         !this.askedQuestions.has(question.id) &&
@@ -346,12 +408,99 @@ export class AdaptiveQuestionSelector {
                 Math.floor(10 - this.askedQuestions.size / 3)
             ); // Mulai dari 10, turun hingga 3
 
-            const candidateQuestions = this.questionPool
-                .filter(
-                    (question) =>
-                        !this.askedQuestions.has(question.id) &&
-                        !this.skippedQuestions.has(question.id)
-                )
+            // Filter pertanyaan yang belum ditanyakan
+            let candidatePool = this.questionPool.filter(
+                (question) =>
+                    !this.askedQuestions.has(question.id) &&
+                    !this.skippedQuestions.has(question.id)
+            );
+
+            // Jika ada preferensi, berikan prioritas pada pertanyaan dari sphere dengan preferensi tinggi
+            if (
+                this.preferences &&
+                Object.keys(this.preferences).length > 0 &&
+                this.askedQuestions.size < 10
+            ) {
+                // Dapatkan sphere dengan preferensi tertinggi (top 3)
+                const topSpheres = Object.entries(this.preferences)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 3)
+                    .map(([sphereId]) => parseInt(sphereId));
+
+                // Filter pertanyaan yang terkait dengan sphere prioritas
+                const priorityQuestions = candidatePool.filter((question) => {
+                    // Periksa apakah pertanyaan terkait dengan skill dari sphere prioritas
+                    const relatedSkills = Object.keys(question.linked_skills);
+                    return relatedSkills.some((skillId) => {
+                        const skill = skills.find((s) => s.id === skillId);
+                        return skill && topSpheres.includes(skill.sphere_id);
+                    });
+                });
+
+                // Jika ada cukup pertanyaan prioritas, gunakan itu
+                // Tapi tetap sisakan beberapa pertanyaan non-prioritas untuk keragaman
+                if (priorityQuestions.length >= Math.max(3, topN / 2)) {
+                    // Gabungkan 70% pertanyaan prioritas dan 30% pertanyaan acak
+                    const priorityCount = Math.ceil(topN * 0.7);
+                    const randomCount = topN - priorityCount;
+
+                    // Ambil pertanyaan prioritas
+                    const selectedPriority = priorityQuestions
+                        .map((question) => ({
+                            question,
+                            infoGain:
+                                this.calculateInformationGain(question) *
+                                (0.8 + Math.random() * 0.4),
+                        }))
+                        .filter((item) => item.infoGain > 0)
+                        .sort((a, b) => b.infoGain - a.infoGain)
+                        .slice(0, priorityCount)
+                        .map((item) => item.question);
+
+                    // Ambil pertanyaan acak dari pool yang tersisa
+                    const remainingPool = candidatePool.filter(
+                        (q) => !selectedPriority.some((sq) => sq.id === q.id)
+                    );
+
+                    const randomQuestions = remainingPool
+                        .map((question) => ({
+                            question,
+                            infoGain:
+                                this.calculateInformationGain(question) *
+                                (0.8 + Math.random() * 0.4),
+                        }))
+                        .filter((item) => item.infoGain > 0)
+                        .sort((a, b) => b.infoGain - a.infoGain)
+                        .slice(0, randomCount)
+                        .map((item) => item.question);
+
+                    // Gabungkan dan acak urutan
+                    const combinedQuestions = [
+                        ...selectedPriority,
+                        ...randomQuestions,
+                    ];
+                    // Acak urutan
+                    for (let i = combinedQuestions.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [combinedQuestions[i], combinedQuestions[j]] = [
+                            combinedQuestions[j],
+                            combinedQuestions[i],
+                        ];
+                    }
+
+                    // Gunakan pertanyaan gabungan
+                    if (combinedQuestions.length > 0) {
+                        const randomIndex = Math.floor(
+                            Math.random() * combinedQuestions.length
+                        );
+                        bestQuestion = combinedQuestions[randomIndex];
+                        return bestQuestion;
+                    }
+                }
+            }
+
+            // Jika tidak ada preferensi atau tidak cukup pertanyaan prioritas, gunakan pendekatan standar
+            const candidateQuestions = candidatePool
                 .map((question) => ({
                     question,
                     infoGain:
