@@ -11,6 +11,7 @@ import SphereRadarChart from "@/components/sphere-radar-chart"
 import SkillBarChart from "@/components/skill-bar-chart"
 import SkillGrowthChart from "@/components/skill-growth-chart"
 import ResourceLinks from "@/components/resource-links"
+import HiddenPotentialSection from "@/components/hidden-potential-section"
 import { AdaptiveQuestionSelector } from "@/lib/algorithms/question-selector"
 import { SkillPredictor } from "@/lib/algorithms/skill-predictor"
 import { questions, skills, spheres } from "@/lib/data"
@@ -21,6 +22,8 @@ export default function ResultsPage() {
   const [results, setResults] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("overview")
+  const [userAnswers, setUserAnswers] = useState<Record<string, string>>({})
+  const [savedProbabilities, setSavedProbabilities] = useState<Record<string, number>>({})
   // State untuk menyimpan data hasil
 
   // Fungsi untuk menghapus data quiz sebelumnya dari localStorage
@@ -58,7 +61,8 @@ export default function ResultsPage() {
 
     // Retrieve user answers
     const userAnswersJson = localStorage.getItem(`quiz_answers_${sessionId}`)
-    const userAnswers = userAnswersJson ? JSON.parse(userAnswersJson) : {}
+    const parsedUserAnswers = userAnswersJson ? JSON.parse(userAnswersJson) : {}
+    setUserAnswers(parsedUserAnswers)
 
     // Retrieve question history
     const questionHistoryJson = localStorage.getItem(`quiz_history_${sessionId}`)
@@ -66,18 +70,19 @@ export default function ResultsPage() {
 
     // Retrieve skill probabilities
     const probabilitiesJson = localStorage.getItem(`quiz_probabilities_${sessionId}`)
-    const savedProbabilities = probabilitiesJson ? JSON.parse(probabilitiesJson) : null
+    const parsedProbabilities = probabilitiesJson ? JSON.parse(probabilitiesJson) : {}
+    setSavedProbabilities(parsedProbabilities)
 
     // Retrieve asked questions count
     const askedCountStr = localStorage.getItem(`quiz_asked_count_${sessionId}`)
     const askedCount = askedCountStr ? parseInt(askedCountStr) : 0
 
     // Create a question selector with real user answers and preferences
-    const selector = new AdaptiveQuestionSelector(questions, userAnswers, preferences)
+    const selector = new AdaptiveQuestionSelector(questions, parsedUserAnswers, preferences)
 
     // If we have saved probabilities, restore them
-    if (savedProbabilities) {
-      selector.currentSkillProbabilities = savedProbabilities
+    if (parsedProbabilities) {
+      selector.currentSkillProbabilities = parsedProbabilities
     }
 
     // Restore asked questions from history or direct askedQuestions array
@@ -396,7 +401,7 @@ export default function ResultsPage() {
                 {topSkills && topSkills.length > 0 ? (
                   <ul className="space-y-3">
                     {topSkills
-                      .filter(skill => skill && skill.skill && skill.skill.sphere && skill.skill.practical_applications && skill.skill.practical_applications.length > 0)
+                      .filter(skill => skill && skill.skill)
                       .slice(0, 3)
                       .map((skill, index) => (
                         <li key={index} className="flex items-start">
@@ -408,7 +413,11 @@ export default function ResultsPage() {
                           </div>
                           <div>
                             <p className="font-medium">{skill.skill.name}</p>
-                            <p className="text-sm text-muted-foreground">{skill.skill.practical_applications[0]}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {skill.skill.practical_applications && skill.skill.practical_applications.length > 0
+                                ? skill.skill.practical_applications[0]
+                                : "Kembangkan skill ini dengan latihan dan pembelajaran berkelanjutan"}
+                            </p>
                           </div>
                         </li>
                       ))}
@@ -498,10 +507,7 @@ export default function ResultsPage() {
                   {topSkills
                     .filter(skill =>
                       skill &&
-                      skill.skill &&
-                      skill.skill.sphere &&
-                      skill.skill.practical_applications &&
-                      skill.skill.practical_applications.length > 0
+                      skill.skill
                     )
                     .slice(0, 3)
                     .map((skill, skillIndex) => {
@@ -515,14 +521,23 @@ export default function ResultsPage() {
                             {skill.skill.name}
                           </h3>
                           <ul className="space-y-2">
-                            {skill.skill.practical_applications.map((application, appIndex) => (
-                              <li key={appIndex} className="flex items-start">
+                            {skill.skill.practical_applications && skill.skill.practical_applications.length > 0 ? (
+                              skill.skill.practical_applications.map((application, appIndex) => (
+                                <li key={appIndex} className="flex items-start">
+                                  <span className="mr-2 text-lg" style={{ color: sphereColor }}>
+                                    •
+                                  </span>
+                                  <span className="text-sm">{application}</span>
+                                </li>
+                              ))
+                            ) : (
+                              <li className="flex items-start">
                                 <span className="mr-2 text-lg" style={{ color: sphereColor }}>
                                   •
                                 </span>
-                                <span className="text-sm">{application}</span>
+                                <span className="text-sm">Terapkan skill ini dalam proyek nyata untuk meningkatkan kemampuan Anda</span>
                               </li>
-                            ))}
+                            )}
                           </ul>
                         </div>
                       );
@@ -536,7 +551,20 @@ export default function ResultsPage() {
         </TabsContent>
       </Tabs>
 
-      <div className="flex justify-center space-x-4">
+      {/* Tampilkan Hidden Potential Section */}
+      {activeTab === "overview" && (
+        <div className="mt-8">
+          <HiddenPotentialSection
+            userAnswers={userAnswers}
+            questions={questions}
+            topSkills={topSkills}
+            allSkillProbabilities={savedProbabilities}
+            allSkills={skills}
+          />
+        </div>
+      )}
+
+      <div className="flex justify-center space-x-4 mt-8">
         <Button variant="outline" size="lg">
           Bagikan Hasil
         </Button>
