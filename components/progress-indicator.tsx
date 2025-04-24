@@ -41,24 +41,51 @@ export default function ProgressIndicator({
               }`}
             >
               {confidencePercentage !== null ? `${confidencePercentage}%` : `${percentage}%`}
-              {confidencePercentage !== null && confidencePercentage >= 80 && " (Tinggi)"}
-              {confidencePercentage !== null && confidencePercentage >= 70 && confidencePercentage < 80 && " (Baik)"}
-              {confidencePercentage !== null && confidencePercentage < 70 && " (Sedang)"}
+              {confidencePercentage !== null && (
+                confidencePercentage >= 80
+                  ? " (Tinggi)"
+                  : confidencePercentage >= 70
+                    ? " (Baik)"
+                    : " (Sedang)"
+              )}
             </span>
           </div>
         </div>
-        <Progress
-          value={confidencePercentage !== null ? confidencePercentage : percentage}
-          className={`h-2 ${
-            confidenceScore !== undefined
-              ? confidencePercentage >= 80
-                ? 'bg-green-100 dark:bg-green-950'
-                : confidencePercentage >= 70
-                  ? 'bg-primary/20'
-                  : 'bg-amber-100 dark:bg-amber-950'
-              : ''
-          }`}
-        />
+        <div className="relative">
+          {/* Marker untuk target 80% */}
+          {confidenceScore !== undefined && (
+            <div
+              className="absolute top-0 bottom-0 w-px bg-black/30 dark:bg-white/30 z-10"
+              style={{ left: '80%' }}
+            >
+              <div className="absolute -top-1 -translate-x-1/2 text-[10px] text-muted-foreground">
+                Target
+              </div>
+            </div>
+          )}
+
+          <Progress
+            value={confidencePercentage !== null ? confidencePercentage : percentage}
+            className={`h-2 ${
+              confidenceScore !== undefined
+                ? confidencePercentage >= 80
+                  ? 'bg-green-100 dark:bg-green-950'
+                  : confidencePercentage >= 70
+                    ? 'bg-primary/20'
+                    : 'bg-amber-100 dark:bg-amber-950'
+                : ''
+            }`}
+            indicatorClassName={
+              confidenceScore !== undefined
+                ? confidencePercentage >= 80
+                  ? 'bg-green-500'
+                  : confidencePercentage >= 70
+                    ? 'bg-primary'
+                    : 'bg-amber-500'
+                : ''
+            }
+          />
+        </div>
       </div>
     </div>
   )

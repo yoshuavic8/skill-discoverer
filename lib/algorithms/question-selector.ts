@@ -298,7 +298,7 @@ export class AdaptiveQuestionSelector {
 
   // Select the next question with highest information gain
   selectNextQuestion(
-    maxQuestions = 25, // Ditingkatkan dari 20 menjadi 25
+    maxQuestions = 50, // Diubah dari 25 menjadi 50 untuk konsistensi dengan shouldStopQuiz
     skipCurrent = false,
     currentQuestionId?: string
   ): Question | null {
@@ -586,7 +586,6 @@ export class AdaptiveQuestionSelector {
 
   // Check if we've reached high confidence threshold
   hasReachedHighConfidence(threshold = 0.8): boolean {
-    // Diturunkan dari 0.88 menjadi 0.8 untuk lebih cepat mencapai threshold
     // Require minimum number of questions
     if (this.askedQuestions.size < 5) return false;
 
@@ -601,8 +600,9 @@ export class AdaptiveQuestionSelector {
     const probabilityDifference =
       topSkills[0].probability - topSkills[2].probability;
 
-    // Return true if confidence is high and there's a clear distinction between skills
-    return confidence >= threshold && probabilityDifference > 0.1;
+    // Return true if confidence is high OR there's a clear distinction between skills
+    // Mengubah AND (&&) menjadi OR (||) untuk memisahkan kondisi
+    return confidence >= threshold || probabilityDifference > 0.15;
   }
 
   // Check if we should stop the quiz based on confidence or max questions
@@ -612,7 +612,15 @@ export class AdaptiveQuestionSelector {
       return true;
     }
 
-    // Stop if we've reached high confidence
+    // Get direct confidence score for logging/debugging
+    const currentConfidence = this.getOverallConfidence();
+
+    // Stop if confidence score is very high (>= 0.85) regardless of other conditions
+    if (currentConfidence >= 0.85) {
+      return true;
+    }
+
+    // Stop if we've reached high confidence based on combined criteria
     return this.hasReachedHighConfidence(confidenceThreshold);
   }
 

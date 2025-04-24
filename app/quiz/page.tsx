@@ -37,7 +37,7 @@ export default function QuizPage() {
     setSessionId(newSessionId)
 
     // Get the first question
-    const firstQuestion = selector.selectNextQuestion()
+    const firstQuestion = selector.selectNextQuestion(maxQuestions)
     setCurrentQuestion(firstQuestion)
 
     if (firstQuestion) {
@@ -110,7 +110,10 @@ export default function QuizPage() {
     setConfidenceScore(newConfidenceScore)
 
     // Calculate progress (now based on confidence rather than fixed question count)
-    setProgress(Math.min(newConfidenceScore * 1.25, 1)) // Scale confidence for progress bar
+    // Menggunakan scaling yang lebih realistis:
+    // - 0.8 confidence (target) akan menunjukkan 100% progress
+    // - Scaling lebih linear untuk menghindari kesan progress yang terlalu cepat
+    setProgress(Math.min(newConfidenceScore / 0.8, 1))
 
     // Check if we should stop the quiz based on confidence or max questions
     if (questionSelector.shouldStopQuiz(0.8, maxQuestions)) {
@@ -137,7 +140,7 @@ export default function QuizPage() {
     }
 
     // Get the next question
-    const nextQuestion = questionSelector.selectNextQuestion()
+    const nextQuestion = questionSelector.selectNextQuestion(maxQuestions)
 
     if (nextQuestion) {
       // Tambahkan pertanyaan berikutnya ke chat history
