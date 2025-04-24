@@ -17,7 +17,8 @@ export default function QuizPage() {
   const [loading, setLoading] = useState(true)
   const [sessionId, setSessionId] = useState("")
   const [answeredCount, setAnsweredCount] = useState(0)
-  const [totalQuestions] = useState(25) // Meningkatkan jumlah maksimum pertanyaan dari 20 menjadi 25
+  const [confidenceScore, setConfidenceScore] = useState(0)
+  const [maxQuestions] = useState(50) // Batasan maksimum 50 pertanyaan
   const [showPreferenceStage, setShowPreferenceStage] = useState(true)
   const [chatHistory, setChatHistory] = useState<Array<{ type: string; text: string }>>([
     {
@@ -104,22 +105,26 @@ export default function QuizPage() {
     const newAnsweredCount = answeredCount + 1
     setAnsweredCount(newAnsweredCount)
 
-    // Calculate progress
-    setProgress(newAnsweredCount / totalQuestions)
+    // Calculate confidence score
+    const newConfidenceScore = questionSelector.getOverallConfidence()
+    setConfidenceScore(newConfidenceScore)
 
-    // Check if we've reached the maximum number of questions or high confidence
-    if (newAnsweredCount >= totalQuestions || questionSelector.hasReachedHighConfidence(0.88)) {
+    // Calculate progress (now based on confidence rather than fixed question count)
+    setProgress(Math.min(newConfidenceScore * 1.25, 1)) // Scale confidence for progress bar
+
+    // Check if we should stop the quiz based on confidence or max questions
+    if (questionSelector.shouldStopQuiz(0.8, maxQuestions)) {
       // Tambahkan pesan selesai
-      const confidenceReached = questionSelector.hasReachedHighConfidence(0.88);
-      const confidenceScore = Math.round(questionSelector.getOverallConfidence() * 100);
+      const confidenceReached = questionSelector.hasReachedHighConfidence(0.8);
+      const confidencePercentage = Math.round(newConfidenceScore * 100);
 
       setChatHistory((prev) => [
         ...prev,
         {
           type: "system",
           text: confidenceReached
-            ? `Terima kasih! Kami telah mengumpulkan cukup informasi (${confidenceScore}% keyakinan) untuk memberikan hasil yang akurat. Sedang menganalisis hasil...`
-            : `Terima kasih! Semua pertanyaan telah dijawab. Sedang menganalisis hasil...`,
+            ? `Terima kasih! Kami telah mengumpulkan cukup informasi (${confidencePercentage}% keyakinan) untuk memberikan hasil yang akurat. Sedang menganalisis hasil...`
+            : `Terima kasih! Anda telah menjawab ${newAnsweredCount} pertanyaan. Sedang menganalisis hasil...`,
         },
       ])
 
@@ -153,7 +158,7 @@ export default function QuizPage() {
   }
 
   const handleSkip = () => {
-    if (answeredCount < totalQuestions - 1) {
+    if (answeredCount < maxQuestions - 1) {
       setChatHistory((prev) => [
         ...prev,
         {
@@ -164,7 +169,7 @@ export default function QuizPage() {
 
       // Pilih pertanyaan baru tanpa memperbarui probabilitas
       if (questionSelector && currentQuestion) {
-        const nextQuestion = questionSelector.selectNextQuestion(undefined, true, currentQuestion.id) // Parameter kedua true untuk skip
+        const nextQuestion = questionSelector.selectNextQuestion(maxQuestions, true, currentQuestion.id) // Parameter kedua true untuk skip
         if (nextQuestion) {
           setTimeout(() => {
             setChatHistory((prev) => [
@@ -207,7 +212,11 @@ export default function QuizPage() {
 
   return (
     <>
-      <ProgressIndicator value={progress} answeredCount={answeredCount} totalQuestions={totalQuestions} />
+      <ProgressIndicator
+        value={progress}
+        answeredCount={answeredCount}
+        confidenceScore={confidenceScore}
+      />
       <div className="container mx-auto flex min-h-screen flex-col px-4 py-8 pt-20">
 
       <div className="flex-1 flex flex-col">
